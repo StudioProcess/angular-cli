@@ -4,27 +4,24 @@ import * as path from 'path';
 import * as ts from 'typescript';
 import * as dependentFilesUtils from './get-dependent-files';
 
-import { Promise } from 'es6-promise';
+
 import { Change, ReplaceChange } from './change';
 
-// The root directory of Angular Project.
-const ROOT_PATH = path.resolve('src/app');
-
-/** 
- * Rewrites import module of dependent files when the file is moved. 
+/**
+ * Rewrites import module of dependent files when the file is moved.
  * Also, rewrites export module of related index file of the given file.
  */
 export class ModuleResolver {
 
-  constructor(public oldFilePath: string, public newFilePath: string) {}
+  constructor(public oldFilePath: string, public newFilePath: string, public rootPath: string) {}
 
   /**
    * Changes are applied from the bottom of a file to the top.
-   * An array of Change instances are sorted based upon the order, 
+   * An array of Change instances are sorted based upon the order,
    * then apply() method is called sequentially.
-   * 
-   * @param changes {Change []} 
-   * @return Promise after all apply() method of Change class is called 
+   *
+   * @param changes {Change []}
+   * @return Promise after all apply() method of Change class is called
    *         to all Change instances sequentially.
    */
   applySortedChangePromise(changes: Change[]): Promise<void> {
@@ -33,9 +30,9 @@ export class ModuleResolver {
       .reduce((newChange, change) => newChange.then(() => change.apply()), Promise.resolve());
   }
 
-  /** 
+  /**
    * Assesses the import specifier and determines if it is a relative import.
-   * 
+   *
    * @return {boolean} boolean value if the import specifier is a relative import.
    */
   isRelativeImport(importClause: dependentFilesUtils.ModuleImport): boolean {
@@ -45,19 +42,28 @@ export class ModuleResolver {
     return singleSlash || currentDirSyntax || parentDirSyntax;
   }
 
-  /** 
+  /**
    * Rewrites the import specifiers of all the dependent files (cases for no index file).
-   * 
+   *
    * @todo Implement the logic for rewriting imports of the dependent files when the file
    *       being moved has index file in its old path and/or in its new path.
-   * 
-   * @return {Promise<Change[]>} 
+   *
+   * @return {Promise<Change[]>}
    */
   resolveDependentFiles(): Promise<Change[]> {
-    return dependentFilesUtils.getDependentFiles(this.oldFilePath, ROOT_PATH)
+    return dependentFilesUtils.getDependentFiles(this.oldFilePath, this.rootPath)
       .then((files:  dependentFilesUtils.ModuleMap) => {
         let changes: Change[] = [];
-        Object.keys(files).forEach(file => {
+        let fileBaseName = path.basename(this.oldFilePath, '.ts');
+        // Filter out the spec file associated with to-be-promoted component unit.
+        let relavantFiles = Object.keys(files).filter((file) => {
+          if (path.extname(path.basename(file, '.ts')) === '.spec') {
+            return path.basename(path.basename(file, '.ts'), '.spec') !== fileBaseName;
+          } else {
+            return true;
+          }
+        });
+        relavantFiles.forEach(file => {
           let tempChanges: ReplaceChange[] = files[file]
             .map(specifier => {
               let componentName = path.basename(this.oldFilePath, '.ts');
@@ -77,7 +83,7 @@ export class ModuleResolver {
 
   /**
    * Rewrites the file's own relative imports after it has been moved to new path.
-   * 
+   *
    * @return {Promise<Change[]>}
    */
   resolveOwnImports(): Promise<Change[]> {

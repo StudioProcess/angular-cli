@@ -1,17 +1,23 @@
 var path = require('path');
-var Blueprint = require('ember-cli/lib/models/blueprint');
 var dynamicPathParser = require('../../utilities/dynamic-path-parser');
-var addBarrelRegistration = require('../../utilities/barrel-management');
-var getFiles = Blueprint.prototype.files;
 const stringUtils = require('ember-cli-string-utils');
 const astUtils = require('../../utilities/ast-utils');
+const findParentModule = require('../../utilities/find-parent-module');
 
 module.exports = {
   description: '',
-  
+
   availableOptions: [
     { name: 'flat', type: Boolean, default: true }
   ],
+
+  beforeInstall: function() {
+    try {
+      this.pathToModule = findParentModule(this.project, this.dynamicPath.dir);
+    } catch(e) {
+      throw `Error locating module for declaration\n\t${e}`;
+    }
+  },
 
   normalizeEntityName: function (entityName) {
     var parsedPath = dynamicPathParser(this.project, entityName);
@@ -21,20 +27,10 @@ module.exports = {
   },
 
   locals: function (options) {
-    return { 
+    return {
       dynamicPath: this.dynamicPath.dir,
       flat: options.flat
     };
-  },
-  
-  files: function() {
-    var fileList = getFiles.call(this);
-    
-    if (this.options && this.options.flat) {
-      fileList = fileList.filter(p => p.indexOf('index.ts') <= 0);
-    }
-
-    return fileList;
   },
 
   fileMapTokens: function (options) {
@@ -50,28 +46,21 @@ module.exports = {
       }
     };
   },
-  
+
   afterInstall: function(options) {
     if (options.dryRun) {
       return;
     }
 
     const returns = [];
-    const modulePath = path.join(this.project.root, this.dynamicPath.appRoot, 'app.module.ts');
     const className = stringUtils.classify(`${options.entity.name}Pipe`);
     const fileName = stringUtils.dasherize(`${options.entity.name}.pipe`);
     const componentDir = path.relative(this.dynamicPath.appRoot, this.generatePath);
     const importPath = componentDir ? `./${componentDir}/${fileName}` : `./${fileName}`;
 
-    if (!options.flat) {
-      returns.push(addBarrelRegistration(this, componentDir));
-    } else {
-      returns.push(addBarrelRegistration(this, componentDir, fileName));
-    }
-
     if (!options['skip-import']) {
       returns.push(
-        astUtils.addComponentToModule(modulePath, className, importPath)
+        astUtils.addComponentToModule(this.pathToModule, className, importPath)
           .then(change => change.apply()));
     }
 
